@@ -1,0 +1,11 @@
+.vent
+.vscode
+.claude
+Library
+Logs
+Temp
+UserSettings
+__pycache__
+*.lock
+*.csproj
+*.sln
