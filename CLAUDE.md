@@ -1,79 +1,177 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+此文件为Claude Code (claude.ai/code)在本代码库中工作时提供指导。
 
-## Project Overview
+## 项目概述
 
-This is a Unity 2D project (Unity 2022.3.62f3) with a survival game architecture. The project uses a layered architecture with numbered directories to enforce dependency flow.
+这是Unity 2D项目《根与废土》(Roots & Ruin) - 一款2D横版生存建造探索游戏（Unity 2022.3.62f3）。项目采用五层菱形分层架构，通过数字前缀目录强制依赖流向。
 
-## Architecture & Code Structure
+## 架构与代码结构
 
-### Layered Directory Structure (`Assets/_Game/Scripts/`)
-The codebase uses a numbered prefix system to enforce architectural layers and dependencies:
+### 五层菱形分层架构
+项目采用**五层菱形分层模型**，依赖方向单向向下，跨层通信通过EventBus解耦：
 
-1. **`01_Data/`** - Data layer (ScriptableObjects, save data, configurations)
-2. **`02_Base/`** - Infrastructure layer (foundational systems, services)
-3. **`03_Core/`** - Core systems layer (game logic, survival systems)
-4. **`04_Gameplay/`** - Gameplay systems layer (currently empty, for future expansion)
-5. **`05_Show/`** - Presentation layer (currently empty, for UI/visuals)
-6. **`06_Extensions/`** - Extensions and utilities (Mod system, Editor tools)
-7. **`07_Shared/`** - Shared constants and enums
+1. **`01_Data/`** - 数据层：存储纯数据定义，无任何逻辑（ScriptableObjects、存档结构体）
+2. **`02_Base/`** - 基础设施层：提供引擎无关的核心机制（事件总线、状态机、对象池）
+3. **`03_Core/`** - 核心业务层：实现生存游戏独立的核心规则（背包系统、制作系统、生存属性系统）
+4. **`04_Gameplay/`** - 游戏逻辑层：处理运行时游戏行为（角色FSM、AI决策、战斗计算）
+5. **`05_Show/`** - 表现层：纯粹的视听反馈（UI响应、动画状态、特效播放）
 
-**Dependency Flow:** Lower numbered layers can depend on higher numbered layers, but not vice versa (e.g., `02_Base` can use `07_Shared`, but `07_Shared` cannot use `02_Base`).
+**扩展层**：
+6. **`06_Extensions/`** - 扩展与MOD支持层：MOD系统和编辑器工具
+7. **`07_Shared/`** - 全局共享层：常量和扩展方法
 
-### Key Infrastructure Systems
+**依赖流向规则**：
+- 低编号层可依赖高编号层，反之禁止（例如：`02_Base` 可使用 `07_Shared`，但 `07_Shared` 不能使用 `02_Base`）
+- 业务层→表现层：严禁直接调用，必须通过 EventBus.Publish 广播
+- 表现层→业务层：通过 ServiceLocator 获取服务或发布 UIEvents
+- 跨业务层通信：通过 EventBus
 
-1. **ServiceLocator** (`02_Base/ServiceLocater/ServiceLocator.cs`) - Lightweight service registration system used instead of global singletons for better testability.
+### 核心基础设施系统
 
-2. **MonoSingleton** (`02_Base/Singleton/MonoSingleton.cs`) - MonoBehaviour singleton base class, used only for infrastructure managers (Audio/VFX). Business logic should use ServiceLocator.
+1. **EventBus** (`02_Base/EventBus/`) - 全局类型安全事件总线，基于泛型字典实现。使用结构体事件避免GC分配。
+   - 所有事件定义为结构体（实现 `IEvent` 接口）
+   - 事件分类：`InventoryEvents.cs`、`CombatEvents.cs`、`SurvivalEvents.cs` 等
+   - 跨层通信核心机制
 
-3. **TimerSystem** (`02_Base/Timer/`) - Object-pooled timer system with handle-based API. Supports single, loop, and limited-loop timers with real-time/scaled time modes.
+2. **ServiceLocator** (`02_Base/ServiceLocater/ServiceLocator.cs`) - 轻量级服务定位器，替代全局单例泛滥。
+   - 核心系统在 `Awake()` 中注册自身：`ServiceLocator.Register<SurvivalStatusSystem>(this)`
+   - 其他系统通过 `ServiceLocator.Get<T>()` 访问
+   - 比单例更利于测试，可注入Mock实现
 
-4. **EventBus** (`02_Base/EventBus/`) - Event system for decoupled communication. Events are defined in the `Events` subdirectory.
+3. **StateMachine** (`02_Base/StateMachine/`) - 通用有限状态机框架。
+   - 玩家FSM、敌人AI FSM、全局游戏状态均复用此框架
+   - 定义 `IState` 接口，`StateMachine<TStateKey>` 泛型类
 
-### Core Systems
+4. **MonoSingleton** (`02_Base/Singleton/MonoSingleton.cs`) - MonoBehaviour单例基类。
+   - **仅用于**基础设施层管理器（AudioManager、VFXManager等）
+   - **业务逻辑系统**优先使用 ServiceLocator
 
-1. **SurvivalStatusSystem** (`03_Core/SurvivalStatus/`) - Manages survival attributes (health, hunger, thirst, temperature) with status effects and decay systems.
+5. **TimerSystem** (`02_Base/Timer/`) - 对象池驱动计时器系统。
+   - 零GC分配，支持全局/单个暂停
+   - 支持时间缩放（配合昼夜/睡眠系统）
+   - 支持单次/循环/有限次循环
+   - 通过 TimerHandle 安全控制，句柄失效自动无效化
 
-2. **Save System** (`03_Core/Save/ISaveable.cs`) - Interface for saveable objects.
+### 核心业务系统
 
-### Data Layer
+1. **SurvivalStatusSystem** (`03_Core/SurvivalStatus/`) - 生存属性管理中枢。
+   - 统一管理所有生存属性（血量/饥饿/口渴/体温/疾病）
+   - 支持属性衰减、状态效果的挂载与Tick
+   - 属性归零的后果触发
+   - 依赖：EventBus、SurvivalConfigSO、IStatusEffect
 
-1. **ScriptableObjects** (`01_Data/ScriptableObjects/`) - Game configuration and item definitions.
-2. **SaveData** (`01_Data/SaveData/`) - Save data structures.
+2. **IStatusEffect 接口** (`03_Core/SurvivalStatus/IStatusEffect.cs`) - 状态效果接口。
+   - 所有临时状态（中毒、寒冷、饥饿加速等）均实现此接口
+   - 扩展性设计：新增"生病"状态只需新建一个实现类，无需修改核心系统
 
-## Development Workflow
+3. **ISaveable 接口** (`03_Core/Save/ISaveable.cs`) - 可存档接口。
+   - 需要持久化的系统均实现此接口
+   - `SaveLoadSystem` 在存档时遍历所有注册的 `ISaveable`
+   - `SaveKey`：唯一存档ID，建议用 `nameof(类名)`
 
-### Opening the Project
-- Open `doom2d.sln` in Visual Studio/Rider for code editing
-- Open the Unity project in Unity 2022.3.62f3 or compatible version
+### 数据层
 
-### Package Management
-- Packages are managed via `Packages/manifest.json`
-- Unity Registry packages only - no external package sources configured
+1. **ItemDefinitionSO 基类** (`01_Data/ScriptableObjects/Items/_Base/ItemDefinitionSO.cs`) - 所有物品的数据定义基类。
+   - 纯数据，零运行时逻辑
+   - 数据驱动设计核心：新增物品只需创建.asset文件，无需改代码
+   - 扩展点：`OnUse()` 和 `CanUse()` 方法供子类重写
 
-### Testing
-- Unity Test Framework (`com.unity.test-framework`) is included in dependencies
-- No custom test assemblies found in the project structure
+2. **SurvivalConfigSO** - 生存配置ScriptableObject（饥饿速率等）
+3. **SaveData 结构体** - 存档相关数据结构（纯C#类，无MonoBehaviour）
 
-### Code Style & Conventions
-- Chinese comments used for documentation (代码注释使用中文)
-- C# files include detailed headers with file paths and purpose descriptions
-- Performance optimizations noted in comments (e.g., "[PERF]" markers)
-- Object pooling used for performance-critical systems (TimerSystem)
+## 数据驱动扩展点
 
-## Important Notes
+| 扩展需求 | 操作方式 | 需修改的文件 |
+|----------|----------|-------------|
+| 新增物品 | 创建新的 `.asset` 文件 | **无需改代码** |
+| 新增制作配方 | 创建 `RecipeDefinitionSO.asset` | **无需改代码** |
+| 新增生存状态属性 | 实现 `IStatusEffect` 接口 | 仅新增1个类 |
+| 新增敌人类型 | 继承 `EnemyBase`，创建EnemyDefinitionSO | 仅新增1个类+1个asset |
+| 新增玩家状态 | 继承 `IState`，注册到PlayerFSM | 仅新增1个类 |
+| 新增UI界面 | 继承 `UIPanel`，创建Prefab | 仅新增1个类 |
+| MOD支持 | 实现 `IModEntry` + `IModDataProvider` | 仅新增MOD程序集 |
 
-1. **Service Registration**: Core systems register themselves with ServiceLocator in their `Awake()` method (see `SurvivalStatusSystem.Awake()` for example).
+## 开发工作流
 
-2. **Timer Usage**: Use `TimerSystem.Instance.Create()` for timers instead of Unity's `Invoke` for better control and performance.
+### 打开项目
+- 使用 Visual Studio/Rider 打开 `doom2d.sln` 进行代码编辑
+- 使用 Unity 2022.3.62f3 或兼容版本打开Unity项目
 
-3. **Event-Based Communication**: Use EventBus for decoupled system communication rather than direct references.
+### 包管理
+- 包通过 `Packages/manifest.json` 管理
+- 仅使用Unity Registry包 - 未配置外部包源
 
-4. **No Assembly Definitions**: The project does not use .asmdef files for assembly separation - all scripts are in the default assembly.
+### 测试
+- 依赖中包含 Unity Test Framework (`com.unity.test-framework`)
+- 项目结构中未找到自定义测试程序集
 
-5. **Third-Party Code**: The `ThirdPart/` directory contains external tools (claude-code-proxy), not game code.
+### 代码风格与约定
+- 文档注释使用中文
+- C#文件包含详细头部，标注文件路径和用途描述
+- 性能优化在注释中标注（例如"[PERF]"标记）
+- 性能关键系统使用对象池（TimerSystem）
+- 所有事件定义为结构体，避免GC分配
 
-6. **No CI/CD Configuration**: No build scripts, CI files, or automated deployment found.
+## 关键设计原则
 
-7. **Editor Tools**: Check `06_Extensions/Editor/` for custom editor validation tools (e.g., `ItemAssetValidator.cs`).
+### 模块通信示例：玩家捡起苹果
+```
+[物理层] 玩家碰撞体 OnTriggerEnter2D → 检测到 WorldItem (苹果Prefab)
+    │
+    ▼
+[游戏逻辑层] PlayerController.cs
+    → 调用 InteractionSystem.TryInteract(worldItem)
+    → InteractionSystem 检查 worldItem 实现了 IInteractable
+    → 调用 worldItem.Interact(player)
+    │
+    ▼
+[游戏逻辑层] WorldItem.cs (苹果的世界实体)
+    → 通过 ServiceLocator.Get<InventorySystem>() 获取背包系统
+    → 调用 inventorySystem.TryAddItem("item_apple", 1)
+    │
+    ▼
+[核心业务层] InventorySystem.cs
+    → 查找空闲槽位，执行背包逻辑
+    → 成功后发布事件：
+      EventBus.Publish(new ItemAddedToInventoryEvent {
+          ItemId = "item_apple", Amount = 1, SlotIndex = 3
+      })
+    │
+    ├──────────────────────────────────────────────┐
+    ▼                                              ▼
+[表现层] InventoryPresenter.cs               [表现层] VFXManager.cs
+    → 订阅 ItemAddedToInventoryEvent          → 订阅同一事件
+    → 更新 InventoryPanel 对应槽位的          → 播放拾取特效 + 音效
+      图标和数量显示
+    │
+    ▼
+[表现层] HUDPresenter.cs（可选）
+    → 显示 "+苹果 x1" 的提示文本（飘字）
+```
+
+### 关键通信规则
+| 规则 | 说明 |
+|------|------|
+| **逻辑层→业务层** | 直接调用（通过ServiceLocator解耦实例获取） |
+| **业务层→表现层** | 严禁直接调用，必须通过 EventBus.Publish 广播 |
+| **表现层→业务层** | 通过 ServiceLocator 获取服务，或发布 UIEvents |
+| **跨业务层通信** | 通过 EventBus（如背包变化→制作系统重新验证可用配方） |
+
+## 重要注意事项
+
+1. **服务注册**：核心系统在 `Awake()` 方法中向ServiceLocator注册自身（参见 `SurvivalStatusSystem.Awake()` 示例）。
+
+2. **计时器使用**：使用 `TimerSystem.Instance.Create()` 而不是 Unity 的 `Invoke`，以获得更好的控制和性能。
+
+3. **事件通信**：使用 EventBus 进行解耦的系统通信，而不是直接引用。
+
+4. **无程序集定义**：项目不使用 .asmdef 文件进行程序集分离 - 所有脚本都在默认程序集中。
+
+5. **第三方代码**：`ThirdPart/` 目录包含外部工具（claude-code-proxy），不是游戏代码。
+
+6. **无CI/CD配置**：未找到构建脚本、CI文件或自动部署配置。
+
+7. **编辑器工具**：检查 `06_Extensions/Editor/` 获取自定义编辑器验证工具（例如 `ItemAssetValidator.cs`）。
+
+8. **MOD支持**：架构设计支持MOD系统，通过 `IModEntry` 和 `IModDataProvider` 接口实现。
