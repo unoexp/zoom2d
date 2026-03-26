@@ -9,3 +9,4 @@ __pycache__
 *.lock
 *.csproj
 *.sln
+.DS_Store
