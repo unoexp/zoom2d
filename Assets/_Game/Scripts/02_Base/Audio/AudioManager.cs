@@ -20,6 +20,10 @@ public sealed class AudioManager : MonoSingleton<AudioManager>
     // 配置
     // ══════════════════════════════════════════════════════
 
+    [Header("音效目录")]
+    [Tooltip("音效目录 SO 列表（可多个，会合并）")]
+    [SerializeField] private AudioCatalogSO[] _catalogs;
+
     [Header("音频源")]
     [SerializeField] private AudioSource _musicSource;
     [SerializeField] private AudioSource _ambientSource;
@@ -43,6 +47,9 @@ public sealed class AudioManager : MonoSingleton<AudioManager>
 
     /// <summary>SFX AudioSource 池</summary>
     private readonly List<AudioSource> _sfxPool = new List<AudioSource>();
+
+    /// <summary>音效ID → 音效条目（快速查找）</summary>
+    private readonly Dictionary<string, AudioEntry> _entryMap = new Dictionary<string, AudioEntry>();
 
     /// <summary>BGM 淡入淡出状态</summary>
     private AudioClip _pendingMusic;
@@ -87,6 +94,9 @@ public sealed class AudioManager : MonoSingleton<AudioManager>
             source.playOnAwake = false;
             _sfxPool.Add(source);
         }
+
+        // 加载音效目录
+        LoadCatalogs();
 
         ServiceLocator.Register<AudioManager>(this);
     }
@@ -215,8 +225,113 @@ public sealed class AudioManager : MonoSingleton<AudioManager>
     }
 
     // ══════════════════════════════════════════════════════
+    // 公有 API —— 通过ID播放
+    // ══════════════════════════════════════════════════════
+
+    /// <summary>通过音效ID播放（自动判断分组）</summary>
+    /// <param name="audioId">音效目录中注册的ID</param>
+    public void Play(string audioId)
+    {
+        if (!_entryMap.TryGetValue(audioId, out var entry))
+        {
+            Debug.LogWarning($"[AudioManager] 未注册的音效ID: {audioId}");
+            return;
+        }
+
+        var clip = GetRandomClip(entry);
+        if (clip == null) return;
+
+        float volumeScale = entry.VolumeScale > 0f ? entry.VolumeScale : 1f;
+
+        switch (entry.Group)
+        {
+            case AudioGroup.Music:
+                PlayMusic(clip);
+                break;
+            case AudioGroup.Ambient:
+                PlayAmbient(clip);
+                break;
+            default:
+                PlaySFXWithPitch(clip, volumeScale, entry.PitchMin, entry.PitchMax);
+                break;
+        }
+    }
+
+    /// <summary>通过音效ID在指定位置播放</summary>
+    public void PlayAtPosition(string audioId, Vector3 position)
+    {
+        if (!_entryMap.TryGetValue(audioId, out var entry))
+        {
+            Debug.LogWarning($"[AudioManager] 未注册的音效ID: {audioId}");
+            return;
+        }
+
+        var clip = GetRandomClip(entry);
+        if (clip == null) return;
+
+        float volumeScale = entry.VolumeScale > 0f ? entry.VolumeScale : 1f;
+        PlaySFXAtPosition(clip, position, volumeScale);
+    }
+
+    /// <summary>检查音效ID是否已注册</summary>
+    public bool HasAudio(string audioId)
+    {
+        return _entryMap.ContainsKey(audioId);
+    }
+
+    // ══════════════════════════════════════════════════════
     // 内部方法
     // ══════════════════════════════════════════════════════
+
+    /// <summary>加载所有音效目录</summary>
+    private void LoadCatalogs()
+    {
+        if (_catalogs == null) return;
+
+        for (int i = 0; i < _catalogs.Length; i++)
+        {
+            var catalog = _catalogs[i];
+            if (catalog == null || catalog.Entries == null) continue;
+
+            for (int j = 0; j < catalog.Entries.Length; j++)
+            {
+                var entry = catalog.Entries[j];
+                if (string.IsNullOrEmpty(entry.AudioId)) continue;
+                if (entry.Clips == null || entry.Clips.Length == 0) continue;
+
+                // 默认音量和音高
+                if (entry.VolumeScale <= 0f) entry.VolumeScale = 1f;
+                if (entry.PitchMin <= 0f) entry.PitchMin = 1f;
+                if (entry.PitchMax <= 0f) entry.PitchMax = 1f;
+
+                _entryMap[entry.AudioId] = entry;
+            }
+        }
+
+        Debug.Log($"[AudioManager] 已加载 {_entryMap.Count} 条音效");
+    }
+
+    /// <summary>从条目中随机选取一个 AudioClip</summary>
+    private static AudioClip GetRandomClip(AudioEntry entry)
+    {
+        if (entry.Clips == null || entry.Clips.Length == 0) return null;
+        if (entry.Clips.Length == 1) return entry.Clips[0];
+        return entry.Clips[Random.Range(0, entry.Clips.Length)];
+    }
+
+    /// <summary>播放带音高变化的音效</summary>
+    private void PlaySFXWithPitch(AudioClip clip, float volumeScale, float pitchMin, float pitchMax)
+    {
+        if (clip == null) return;
+
+        var source = GetAvailableSfxSource();
+        if (source == null) return;
+
+        source.clip = clip;
+        source.volume = GetEffectiveVolume(AudioGroup.SFX) * volumeScale;
+        source.pitch = pitchMin < pitchMax ? Random.Range(pitchMin, pitchMax) : 1f;
+        source.Play();
+    }
 
     private void ApplyVolumes()
     {
