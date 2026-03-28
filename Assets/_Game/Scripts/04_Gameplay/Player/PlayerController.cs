@@ -69,6 +69,8 @@ public class PlayerController : MonoBehaviour, IDamageable
     private bool _isGrounded;
     private bool _isDead;
     private bool _facingRight = true;
+    private bool _isInvincible;
+    private float _invincibilityTimer;
 
     // ══════════════════════════════════════════════════════
     // 公有属性（供 FSM 状态类读取）
@@ -90,6 +92,7 @@ public class PlayerController : MonoBehaviour, IDamageable
     public float AirMoveSpeed => _airMoveSpeed;
 
     public PlayerState CurrentState => _fsm?.CurrentState ?? PlayerState.Idle;
+    public bool IsInvincible => _isInvincible;
 
     // ══════════════════════════════════════════════════════
     // IDamageable 实现
@@ -139,6 +142,14 @@ public class PlayerController : MonoBehaviour, IDamageable
     {
         ReadInput();
         _fsm.Update(Time.deltaTime);
+
+        // 无敌帧倒计时
+        if (_isInvincible)
+        {
+            _invincibilityTimer -= Time.deltaTime;
+            if (_invincibilityTimer <= 0f)
+                ClearInvincible();
+        }
 
         // 消费一次性输入
         _jumpRequested = false;
@@ -197,13 +208,27 @@ public class PlayerController : MonoBehaviour, IDamageable
         _inputEnabled = true;
     }
 
+    /// <summary>开启无敌帧</summary>
+    public void SetInvincible(float duration)
+    {
+        _isInvincible = true;
+        _invincibilityTimer = duration;
+    }
+
+    /// <summary>取消无敌帧</summary>
+    public void ClearInvincible()
+    {
+        _isInvincible = false;
+        _invincibilityTimer = 0f;
+    }
+
     // ══════════════════════════════════════════════════════
     // IDamageable 方法
     // ══════════════════════════════════════════════════════
 
     public void TakeDamage(DamageInfo info)
     {
-        if (_isDead) return;
+        if (_isDead || _isInvincible) return;
 
         _currentHealth -= info.Damage;
         _currentHealth = Mathf.Max(0f, _currentHealth);

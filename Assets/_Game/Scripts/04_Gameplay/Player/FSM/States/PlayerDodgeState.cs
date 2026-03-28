@@ -25,7 +25,8 @@ public class PlayerDodgeState : PlayerStateBase
             ? Mathf.Sign(inputX)
             : (Player.FacingRight ? 1f : -1f);
 
-        // TODO: 设置无敌帧（通过 CombatSystem 或 IDamageable 标记）
+        // 设置无敌帧（整个闪避期间免疫伤害）
+        Player.SetInvincible(DODGE_DURATION);
     }
 
     public override void OnUpdate(float deltaTime)
@@ -47,6 +48,7 @@ public class PlayerDodgeState : PlayerStateBase
 
     public override void OnExit()
     {
-        // TODO: 取消无敌帧
+        // 取消无敌帧（状态提前退出时确保清除）
+        Player.ClearInvincible();
     }
 }

@@ -202,7 +202,15 @@ public class EnemyBase : MonoBehaviour, IDamageable, IPoolable
         _fsm?.ChangeState(EnemyState.Dead);
         StopMoving();
 
-        // 掉落物品处理（TODO：对接 SpawnManager / ObjectPoolManager）
+        // 发布死亡事件 → LootSystem 监听并生成掉落物
+        int killerInstanceId = lastHit.Attacker != null ? lastHit.Attacker.GetInstanceID() : 0;
+        EventBus.Publish(new EntityDiedEvent
+        {
+            EntityInstanceId = gameObject.GetInstanceID(),
+            KillerInstanceId = killerInstanceId,
+            Cause = DeathCause.Combat
+        });
+
         Debug.Log($"[Enemy] {_definition?.DisplayName ?? name} 死亡");
     }
 }
