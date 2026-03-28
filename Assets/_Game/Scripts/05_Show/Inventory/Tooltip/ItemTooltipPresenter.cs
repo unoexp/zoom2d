@@ -168,15 +168,37 @@ public class ItemTooltipPresenter : MonoBehaviour
 
         // 消耗品
         var consumable = itemDef as ConsumableItemSO;
-        if (consumable != null)
+        if (consumable != null && consumable.Effects != null)
         {
             var lines = new System.Collections.Generic.List<string>();
-            if (consumable.HungerRestore > 0f)
-                lines.Add($"恢复饱食: +{consumable.HungerRestore:F0}");
-            if (consumable.ThirstRestore > 0f)
-                lines.Add($"恢复水分: +{consumable.ThirstRestore:F0}");
-            if (consumable.HealthRestore > 0f)
-                lines.Add($"恢复生命: +{consumable.HealthRestore:F0}");
+            for (int i = 0; i < consumable.Effects.Length; i++)
+            {
+                var effect = consumable.Effects[i];
+                switch (effect.EffectType)
+                {
+                    case ConsumableEffectType.RestoreHunger:
+                        lines.Add($"恢复饱食: +{effect.Value:F0}");
+                        break;
+                    case ConsumableEffectType.RestoreThirst:
+                        lines.Add($"恢复水分: +{effect.Value:F0}");
+                        break;
+                    case ConsumableEffectType.RestoreHealth:
+                        lines.Add($"恢复生命: +{effect.Value:F0}");
+                        break;
+                    case ConsumableEffectType.RestoreStamina:
+                        lines.Add($"恢复体力: +{effect.Value:F0}");
+                        break;
+                    case ConsumableEffectType.RestoreTemperature:
+                        lines.Add($"恢复体温: +{effect.Value:F0}");
+                        break;
+                    case ConsumableEffectType.Buff:
+                        lines.Add($"增益效果: {effect.StatusEffectId}");
+                        break;
+                    case ConsumableEffectType.Debuff:
+                        lines.Add($"副作用: {effect.StatusEffectId}");
+                        break;
+                }
+            }
             return lines.Count > 0 ? lines.ToArray() : null;
         }
 

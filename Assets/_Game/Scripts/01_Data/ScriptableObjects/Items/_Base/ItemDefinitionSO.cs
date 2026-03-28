@@ -64,16 +64,3 @@ public abstract class ItemDefinitionSO : ScriptableObject
     // 💡 扩展点：MOD可以通过重写此方法注入自定义逻辑
     public virtual bool CanUse(GameObject user) => true;
 }
-
-// 📁 01_Data/ScriptableObjects/Items/Consumable/ConsumableItemSO.cs
-/// <summary>消耗品扩展：食物、药品等</summary>
-[CreateAssetMenu(fileName = "Item_Consumable_", menuName = "SurvivalGame/Items/Consumable")]
-public class ConsumableItemSO : ItemDefinitionSO
-{
-    [Header("消耗效果")]
-    public float HungerRestore;
-    public float ThirstRestore;
-    public float HealthRestore;
-    public float DurationSeconds;               // 持续效果时长（0=即时）
-    // public List<StatusEffectData> StatusEffects; // 附加状态效果（如中毒、增益）
-}

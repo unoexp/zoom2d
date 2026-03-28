@@ -5,24 +5,6 @@
 using UnityEngine;
 
 /// <summary>
-/// 货币系统接口（定义在 03_Core，供 05_Show 通过 ServiceLocator 访问）
-/// </summary>
-public interface ICurrencySystem
-{
-    /// <summary>当前金币数量</summary>
-    int Gold { get; }
-
-    /// <summary>增加金币</summary>
-    void AddGold(int amount, string reason = "");
-
-    /// <summary>尝试消费金币（余额不足返回 false）</summary>
-    bool TrySpendGold(int amount, string reason = "");
-
-    /// <summary>检查是否有足够金币</summary>
-    bool HasEnoughGold(int amount);
-}
-
-/// <summary>
 /// 中央货币管理系统。
 ///
 /// 核心职责：
